@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Disease tagger</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧬</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper: #F4F5F8; --surface: #FFFFFF; --ink: #23213A; --muted: #5E5B72; --line: #DAD8E3;
+  --hema: #4A3F9E; --hema-soft: #E6E3F6; --eosin: #C23A6E; --eosin-soft: #FBE1EB; --warn: #A4331E;
+  --sans: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --serif: "Source Serif 4", Georgia, "Times New Roman", serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #16151F; --surface: #1F1D2B; --ink: #ECEAF4; --muted: #A19EB5; --line: #34314A;
+    --hema: #A79DF5; --hema-soft: #2C2848; --eosin: #F07AA6; --eosin-soft: #45213A; --warn: #F2927C;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #16151F; --surface: #1F1D2B; --ink: #ECEAF4; --muted: #A19EB5; --line: #34314A;
+  --hema: #A79DF5; --hema-soft: #2C2848; --eosin: #F07AA6; --eosin-soft: #45213A; --warn: #F2927C;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+:root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.5 var(--sans); }
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--hema); outline-offset: 2px; }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+
+/* top bar */
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line); }
+.bar .wrap { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; min-height: 64px; }
+.bar h1 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -0.01em; text-align: center; }
+.bar h1 small { display: block; font-weight: 400; font-size: 12px; color: var(--muted); }
+.right { display: flex; justify-content: flex-end; align-items: center; gap: 10px; }
+.seg { display: inline-flex; justify-self: start; width: max-content; border: 1px solid var(--line); border-radius: 999px; padding: 3px; background: var(--paper); }
+.seg button { white-space: nowrap; border: 0; background: transparent; padding: 6px 14px; border-radius: 999px; font-weight: 500; font-size: 14px; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--hema); color: var(--surface); }
+.conn { white-space: nowrap; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 6px 12px; font-size: 13px; display: inline-flex; align-items: center; gap: 7px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.dot.ok { background: #2E9E6B; } .dot.bad { background: var(--warn); }
+
+/* connection panel */
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; margin-top: 18px; }
+.panel[hidden] { display: none; }
+.panel p { margin: 0 0 12px; color: var(--muted); max-width: 70ch; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; }
+.row input { flex: 1 1 320px; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); }
+.btn { border: 1px solid var(--hema); background: var(--hema); color: var(--surface); padding: 10px 18px; border-radius: 8px; font-weight: 600; }
+.btn.ghost { background: transparent; color: var(--hema); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.msg { margin-top: 10px; font-size: 14px; }
+.msg.err { color: var(--warn); }
+
+/* data picker */
+.data { display: grid; grid-template-columns: 1fr 1fr auto; gap: 14px; margin-top: 12px; align-items: stretch; }
+.choice { text-align: left; border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 14px 16px; }
+.choice strong { display: block; font-weight: 600; }
+.choice span { font-size: 13px; color: var(--muted); }
+.choice[aria-pressed="true"] { border-color: var(--hema); box-shadow: inset 0 0 0 1px var(--hema); }
+.choice.drag { background: var(--hema-soft); }
+.data .btn { align-self: stretch; padding: 0 22px; }
+
+/* progress */
+.progress { margin-top: 18px; }
+.progress[hidden] { display: none; }
+.track { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+.fill { height: 100%; width: 0; background: var(--hema); transition: width .4s ease; }
+.progress p { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+
+/* results */
+.empty { margin: 48px 0; color: var(--muted); text-align: center; }
+.result-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin: 36px 0 16px; }
+.result-head h2 { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.015em; }
+.result-head p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+.figures { display: grid; grid-template-columns: repeat(5, 1fr); border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
+.figures.three { grid-template-columns: repeat(3, 1fr); }
+.fig { padding: 16px 18px; border-left: 1px solid var(--line); }
+.fig:first-child { border-left: 0; }
+.fig .v { font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.fig .l { font-size: 13px; color: var(--muted); }
+.fig .d { font-size: 12px; margin-top: 6px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.fig .d b { font-weight: 600; color: var(--ink); }
+.note { margin: 14px 0 0; font-size: 14px; color: var(--muted); max-width: 75ch; }
+.note b { color: var(--ink); font-weight: 600; }
+
+.table-wrap { overflow-x: auto; margin-top: 18px; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 14px; }
+th, td { padding: 9px 12px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { font-weight: 500; color: var(--muted); font-size: 13px; }
+tr.sel td { background: var(--hema-soft); font-weight: 600; }
+
+/* sentences */
+.sent-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin: 40px 0 6px; }
+.sent-head h3 { margin: 0; font-size: 18px; font-weight: 700; }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+ol.sents { list-style: none; margin: 0; padding: 0; }
+ol.sents li { padding: 14px 0; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 64px 1fr; gap: 12px; }
+ol.sents .id { font-size: 12px; color: var(--muted); padding-top: 4px; font-variant-numeric: tabular-nums; }
+.text { font-family: var(--serif); font-size: 17px; line-height: 1.75; max-width: 78ch; }
+mark { background: var(--eosin-soft); color: var(--ink); border-radius: 3px; padding: 1px 3px; box-shadow: inset 0 -2px 0 var(--eosin); }
+mark.vetoed { background: transparent; box-shadow: none; color: var(--hema); text-decoration: line-through; text-decoration-thickness: 2px; text-decoration-color: var(--hema); }
+.gold { text-decoration: underline dotted; text-decoration-thickness: 2px; text-underline-offset: 5px; text-decoration-color: var(--ink); }
+mark.vetoed .gold { text-decoration: line-through underline dotted; }
+.sw { width: 26px; height: 14px; border-radius: 3px; display: inline-block; }
+.sw.e { background: var(--eosin-soft); box-shadow: inset 0 -2px 0 var(--eosin); }
+.sw.v { border-top: 2px solid var(--hema); height: 0; margin-top: 2px; }
+.sw.g { border-bottom: 2px dotted var(--ink); height: 8px; border-radius: 0; }
+.more { margin: 16px 0 60px; }
+
+.section-title { margin: 30px 0 4px; font-size: 18px; font-weight: 700; }
+.hint { margin: 0 0 12px; font-size: 14px; color: var(--muted); }
+.try-row { display: grid; grid-template-columns: 1fr auto; gap: 14px; }
+.try-row textarea { width: 100%; min-height: 84px; resize: vertical; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--surface); color: var(--ink); font: 16px/1.6 var(--serif); }
+.try-row .btn { padding: 0 22px; min-width: 190px; }
+.try-out { margin-top: 14px; }
+.try-meta { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.try-sent { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.bio { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
+.tok { display: inline-flex; flex-direction: column; align-items: center; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.tok .w { font-family: var(--serif); font-size: 15px; }
+.tok .t { font-size: 11px; color: var(--muted); }
+.tok.dis { background: var(--eosin-soft); border-color: var(--eosin); }
+.tok.dis .t { color: var(--ink); font-weight: 600; }
+.small-btn { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 4px 10px; font-size: 13px; }
+
+@media (max-width: 760px) {
+  .try-row { grid-template-columns: 1fr; }
+  .try-row .btn { padding: 12px; }
+  .bar .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; padding-top: 10px; padding-bottom: 10px; }
+  .bar h1 { order: -1; width: 100%; text-align: left; }
+  .right { gap: 6px; }
+  .seg button { padding: 6px 10px; font-size: 13px; }
+  .conn { padding: 9px; }
+  #connLabel { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .data { grid-template-columns: 1fr; }
+  .data .btn { padding: 12px; }
+  .figures, .figures.three { grid-template-columns: repeat(2, 1fr); }
+  .fig { border-left: 0; border-top: 1px solid var(--line); }
+  .fig:first-child, .fig:nth-child(2) { border-top: 0; }
+  ol.sents li { grid-template-columns: 1fr; gap: 2px; }
+}
+@media (prefers-reduced-motion: reduce) { .fill { transition: none; } }
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="wrap">
+    <div class="seg" role="group" aria-label="Tagger">
+      <button data-model="sapbert" aria-pressed="true">SapBERT</button>
+      <button data-model="smollm" aria-pressed="false">SmolLM</button>
+    </div>
+    <h1>Disease tagger<small>PDNC hackathon, problem statement 02</small></h1>
+    <div class="right">
+      <div class="seg" role="group" aria-label="Projection head">
+        <button data-head="0" aria-pressed="true">Without head</button>
+        <button data-head="1" aria-pressed="false">With head</button>
+      </div>
+      <button class="conn" id="connBtn" aria-expanded="false" aria-controls="connPanel"><i class="dot" id="dot"></i><span id="connLabel">Not connected</span></button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="panel" id="connPanel" hidden>
+    <p>Run the Colab notebook and paste the backend URL it prints. It ends in <b>trycloudflare.com</b> or <b>ngrok-free.app</b>, and it changes every time Colab restarts.</p>
+    <div class="row">
+      <input id="apiInput" type="url" placeholder="https://something.trycloudflare.com" aria-label="Backend URL" autocomplete="off" spellcheck="false">
+      <button class="btn" id="connectBtn">Connect</button>
+    </div>
+    <div class="msg" id="connMsg" role="status"></div>
+  </section>
+
+  <section aria-labelledby="tryTitle">
+    <h2 class="section-title" id="tryTitle">Tag your own text</h2>
+    <p class="hint">Uses the tagger and head setting chosen at the top. Press Ctrl+Enter to tag.</p>
+    <div class="try-row">
+      <textarea id="tryInput" aria-label="Text to tag" placeholder="Patients with ataxia-telangiectasia have a higher risk of lymphoma and breast cancer."></textarea>
+      <button class="btn" id="tryBtn">Tag with SapBERT</button>
+    </div>
+    <div class="msg err" id="tryMsg" role="alert"></div>
+    <div class="try-out" id="tryOut"></div>
+  </section>
+
+  <h2 class="section-title">Score a test set</h2>
+  <section class="data" aria-label="Data to tag">
+    <button class="choice" id="ncbiChoice" aria-pressed="true">
+      <strong>NCBI-disease test</strong>
+      <span>940 labelled sentences, loaded on the server. Shows full metrics.</span>
+    </button>
+    <button class="choice" id="fileChoice" aria-pressed="false">
+      <strong id="fileTitle">Upload test.csv</strong>
+      <span id="fileSub">Click or drop a CSV with a tokens column. Add ner_tags to get metrics.</span>
+    </button>
+    <input type="file" id="fileInput" accept=".csv,text/csv" hidden>
+    <button class="btn" id="runBtn">Run SapBERT</button>
+  </section>
+
+  <section class="progress" id="progress" hidden aria-live="polite">
+    <div class="track"><div class="fill" id="fill"></div></div>
+    <p id="progText">Starting</p>
+  </section>
+  <div class="msg err" id="runMsg" role="alert"></div>
+
+  <section id="results"></section>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const MODEL_NAMES = { sapbert: "SapBERT", smollm: "SmolLM" };
+const METRICS = ["span P", "span R", "span F1", "token macro-F1", "token acc"];
+const state = {
+  api: "", model: "sapbert", head: false, source: "ncbi", file: null,
+  results: {},        // "model|datasetKey" -> { jobId, result }
+  running: false, view: "changed",
+  tryCache: {}, tryText: "", tagging: false,   // free-text tagging, keyed "model|text"
+};
+const LS = { get: (k) => { try { return localStorage.getItem(k) || ""; } catch { return ""; } },
+             set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+
+// ---------- backend calls ----------
+async function call(path, opts = {}) {
+  if (!state.api) throw new Error("Connect to the backend first.");
+  let res;
+  try {
+    res = await fetch(state.api + path, { ...opts, headers: { "ngrok-skip-browser-warning": "1", ...(opts.headers || {}) } });
+  } catch {
+    throw new Error("Can't reach the backend. Check that the Colab notebook is still running and the URL is current.");
+  }
+  if (!res.ok) {
+    let detail = "";
+    try { detail = (await res.json()).detail; } catch {}
+    throw new Error(detail || `The backend answered with error ${res.status}. The Colab runtime may have stopped.`);
+  }
+  return res;
+}
+async function callJSON(path, opts) {
+  const res = await call(path, opts);
+  try { return await res.json(); }
+  catch { throw new Error("The backend sent something that isn't JSON. Check the URL points at the Colab server."); }
+}
+
+// ---------- connection ----------
+function setConn(kind, label) {
+  $("#dot").className = "dot " + (kind || "");
+  $("#connLabel").textContent = label;
+}
+function togglePanel(open) {
+  $("#connPanel").hidden = !open;
+  $("#connBtn").setAttribute("aria-expanded", String(open));
+  if (open) $("#apiInput").focus();
+}
+async function connect(url) {
+  url = (url || "").trim().replace(/\/+$/, "");
+  if (!url) { $("#connMsg").className = "msg err"; $("#connMsg").textContent = "Paste the URL printed by the notebook."; return; }
+  if (!/^https?:\/\//.test(url)) url = "https://" + url;
+  state.api = url; $("#apiInput").value = url;
+  setConn("", "Connecting");
+  $("#connMsg").className = "msg"; $("#connMsg").textContent = "Checking the backend";
+  try {
+    const h = await callJSON("/health");
+    LS.set("pdnc_api", url);
+    setConn("ok", "Connected"); $("#connBtn").title = `Backend on ${h.gpu}`;
+    $("#connMsg").textContent = `Connected. Models loaded on ${h.gpu}.`;
+    togglePanel(false);
+  } catch (e) {
+    setConn("bad", "Not connected");
+    $("#connMsg").className = "msg err"; $("#connMsg").textContent = e.message;
+    togglePanel(true);
+  }
+  render();
+}
+
+// ---------- data source ----------
+function datasetKey() {
+  if (state.source === "ncbi") return "ncbi";
+  const f = state.file; return f ? `file:${f.name}:${f.size}:${f.lastModified}` : null;
+}
+function datasetLabel() { return state.source === "ncbi" ? "NCBI test" : (state.file ? state.file.name : "a CSV"); }
+function pickFile(f) {
+  if (!f) return;
+  if (!/\.csv$/i.test(f.name)) { $("#runMsg").textContent = `${f.name} isn't a CSV file.`; return; }
+  state.file = f; state.source = "file"; $("#runMsg").textContent = "";
+  $("#fileTitle").textContent = f.name;
+  const kb = f.size / 1024;
+  $("#fileSub").textContent = `${kb < 1 ? "Under 1" : kb.toFixed(0)} KB. Click to choose a different file.`;
+  render();
+}
+
+// ---------- running ----------
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function run() {
+  const key = datasetKey();
+  if (!key) { $("#fileInput").click(); return; }
+  if (!state.api) { togglePanel(true); return; }
+  const model = state.model;
+  state.running = true; $("#runMsg").textContent = ""; render();
+  showProgress("Sending to the backend", 0, 1);
+  try {
+    const fd = new FormData();
+    fd.append("model", model);
+    if (key === "ncbi") fd.append("dataset", "ncbi"); else fd.append("file", state.file);
+    const { job_id } = await callJSON("/jobs", { method: "POST", body: fd });
+    let fails = 0, job;
+    while (true) {
+      try { job = await callJSON(`/jobs/${job_id}`); fails = 0; }
+      catch (e) { if (++fails >= 5) throw e; await sleep(2000); continue; }
+      if (job.status === "done") break;
+      if (job.status === "error") throw new Error("The backend hit an error: " + job.error);
+      if (job.status === "queued") showProgress("Waiting for the GPU", 0, 1);
+      else if (job.progress) showProgress(job.progress.stage, job.progress.done, job.progress.total);
+      await sleep(1200);
+    }
+    state.results[`${model}|${key}`] = { jobId: job_id, result: job.result };
+  } catch (e) {
+    $("#runMsg").textContent = e.message;
+  } finally {
+    state.running = false; $("#progress").hidden = true; render();
+  }
+}
+function showProgress(stage, done, total) {
+  $("#progress").hidden = false;
+  $("#fill").style.width = `${total ? (100 * done / total) : 0}%`;
+  $("#progText").textContent = total > 1 ? `${stage}: ${done} of ${total} sentences` : stage;
+}
+async function download(entry, variant) {
+  try {
+    const res = await call(`/jobs/${entry.jobId}/download?variant=${variant}`);
+    const blob = await res.blob();
+    const m = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") || "");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = m ? m[1] : "submission.csv";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  } catch (e) { $("#runMsg").textContent = e.message; }
+}
+
+// ---------- rendering ----------
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmt = (x) => x.toFixed(4);
+const signed = (x) => (x > 0 ? "+" : x < 0 ? "−" : "±") + Math.abs(x).toFixed(4);
+
+function spansOf(tags) {
+  const out = []; let st = null;
+  [...tags, "O"].forEach((x, i) => {
+    if (st !== null && x !== "I-Disease") { out.push([st, i]); st = null; }
+    if (x === "B-Disease" || (x === "I-Disease" && st === null)) st = i;
+  });
+  return out;
+}
+function sentenceHTML(ex, head) {
+  const shown = spansOf(head ? ex.head : ex.base);
+  const vetoed = head ? spansOf(ex.base).filter(([a, b]) => !shown.some(([c, d]) => c === a && d === b)) : [];
+  const goldTok = new Set();
+  if (ex.gold) spansOf(ex.gold).forEach(([a, b]) => { for (let i = a; i < b; i++) goldTok.add(i); });
+  const score = new Map((ex.scores || []).map((x) => [`${x.start}-${x.end}`, x.score]));
+  const tip = (a, b, kind) => (kind === "vetoed" ? "Removed by the head" : "Disease") +
+    (score.has(`${a}-${b}`) ? `, head score ${score.get(`${a}-${b}`)}` : "");
+  const starts = new Map();
+  shown.forEach(([a, b]) => starts.set(a, [b, "kept"]));
+  vetoed.forEach(([a, b]) => starts.set(a, [b, "vetoed"]));
+  const run = (a, b) => {           // tokens a..b-1, with consecutive gold tokens wrapped together
+    const out = []; let k = a;
+    while (k < b) {
+      if (goldTok.has(k)) { let e = k; while (e < b && goldTok.has(e)) e++;
+        out.push(`<span class="gold">${ex.tokens.slice(k, e).map(esc).join(" ")}</span>`); k = e; }
+      else { out.push(esc(ex.tokens[k])); k++; }
+    }
+    return out.join(" ");
+  };
+  const parts = []; let i = 0, plain = 0;
+  while (i <= ex.tokens.length) {
+    if (i === ex.tokens.length || starts.has(i)) {
+      if (plain < i) parts.push(run(plain, i));
+      if (i === ex.tokens.length) break;
+      const [b, kind] = starts.get(i);
+      parts.push(`<mark class="${kind === "vetoed" ? "vetoed" : ""}" title="${tip(i, b, kind)}">${run(i, b)}</mark>`);
+      i = b; plain = b;
+    } else i++;
+  }
+  return parts.join(" ");
+}
+
+function render() {
+  document.querySelectorAll("[data-model]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.model === state.model)));
+  document.querySelectorAll("[data-head]").forEach((b) => b.setAttribute("aria-pressed", String((b.dataset.head === "1") === state.head)));
+  $("#ncbiChoice").setAttribute("aria-pressed", String(state.source === "ncbi"));
+  $("#fileChoice").setAttribute("aria-pressed", String(state.source === "file"));
+  renderTry();
+  const key = datasetKey();
+  const runBtn = $("#runBtn");
+  runBtn.disabled = state.running;
+  runBtn.textContent = state.running ? "Running" : (key ? `Run ${MODEL_NAMES[state.model]} on ${datasetLabel()}` : "Choose a CSV");
+
+  const box = $("#results");
+  const entry = key && state.results[`${state.model}|${key}`];
+  if (!entry) {
+    box.innerHTML = state.running ? "" : `<p class="empty">${!state.api
+      ? "Connect to the Colab backend, then run a tagger."
+      : key ? `No results for ${MODEL_NAMES[state.model]} on ${esc(datasetLabel())} yet. Press Run to tag it.`
+            : "Upload a CSV, or use the NCBI test set."}</p>`;
+    return;
+  }
+  const r = entry.result, v = state.head ? "head" : "base", o = state.head ? "base" : "head";
+  const cur = r.variants[v], oth = r.variants[o];
+  const title = `${r.model_name} ${state.head ? "with" : "without"} head`;
+  const otherName = state.head ? "without head" : "with head";
+  let html = `<div class="result-head"><div><h2>${title}</h2>
+    <p>${esc(r.dataset.name)}, ${r.dataset.sentences} sentences, ${r.dataset.labelled ? "labelled" : "no labels"}. Tagged in ${r.seconds} s.</p></div>
+    <button class="btn ghost" id="dlBtn">Download submission CSV</button></div>`;
+
+  if (r.dataset.labelled) {
+    html += `<div class="figures">${METRICS.map((m) => {
+      const d = cur.metrics[m] - oth.metrics[m];
+      return `<div class="fig"><div class="v">${fmt(cur.metrics[m])}</div><div class="l">${m}</div>
+        <div class="d"><b>${signed(d)}</b> vs ${otherName}</div></div>`;
+    }).join("")}</div>`;
+    const bs = r.bootstrap;
+    html += `<p class="note">The head changes span F1 by <b>${signed(bs.delta_f1)}</b>
+      (95% CI ${signed(bs.ci_low)} to ${signed(bs.ci_high)}). It beats the version without the head in ${bs.head_better_pct}% of 2,000 bootstrap resamples.
+      ${bs.ci_low > 0 ? "The interval is above zero, so the improvement is unlikely to be noise." : bs.ci_high < 0 ? "The interval is below zero, so the head hurts here." : "The interval includes zero, so the effect isn't distinguishable from noise."}</p>`;
+    html += `<div class="table-wrap"><table><thead><tr><th>${r.model_name}</th>${METRICS.map((m) => `<th>${m}</th>`).join("")}<th>spans</th></tr></thead><tbody>
+      ${["base", "head"].map((k) => `<tr class="${k === v ? "sel" : ""}"><td>${k === "head" ? "With head" : "Without head"}</td>
+        ${METRICS.map((m) => `<td>${fmt(r.variants[k].metrics[m])}</td>`).join("")}<td>${r.variants[k].spans}</td></tr>`).join("")}
+      </tbody></table></div>`;
+  } else {
+    html += `<div class="figures three">
+      <div class="fig"><div class="v">${cur.spans.toLocaleString()}</div><div class="l">disease spans predicted</div>
+        <div class="d"><b>${oth.spans.toLocaleString()}</b> ${otherName}</div></div>
+      <div class="fig"><div class="v">${r.changed_count.toLocaleString()}</div><div class="l">sentences changed by the head</div>
+        <div class="d">of ${r.dataset.sentences.toLocaleString()}</div></div>
+      <div class="fig"><div class="v">${r.threshold}</div><div class="l">head veto threshold</div>
+        <div class="d">spans scoring below this are removed</div></div></div>
+      <p class="note">This file has no <b>ner_tags</b> column, so there's nothing to score against. Span P, span R, span F1, token macro-F1 and token accuracy appear when the CSV includes gold tags, or on the NCBI test set.</p>`;
+  }
+
+  const list = state.view === "changed" ? r.changed : r.preview;
+  const canChanged = r.changed.length > 0;
+  if (!canChanged) state.view = "preview";
+  html += `<div class="sent-head"><h3>${state.view === "changed"
+      ? `Sentences the head changed (${r.changed_count.toLocaleString()})`
+      : "First sentences"}</h3>
+    <div class="seg" role="group" aria-label="Sentence list">
+      <button data-view="changed" aria-pressed="${state.view === "changed"}" ${canChanged ? "" : "disabled"}>Changed by head</button>
+      <button data-view="preview" aria-pressed="${state.view === "preview"}">First 25</button></div></div>
+    <div class="legend"><span><i class="sw e"></i>Predicted disease</span>
+      ${state.head ? `<span><i class="sw v"></i>Removed by the head</span>` : ""}
+      ${r.dataset.labelled ? `<span><i class="sw g"></i>Gold disease</span>` : ""}</div>
+    <ol class="sents">${list.map((ex) => `<li><div class="id">#${esc(ex.id)}</div><div class="text">${sentenceHTML(ex, state.head)}</div></li>`).join("")}</ol>`;
+  if (state.view === "changed" && r.changed_count > r.changed.length)
+    html += `<p class="note more">Showing the first ${r.changed.length}. The downloaded CSV has every sentence.</p>`;
+  else html += `<div class="more"></div>`;
+
+  box.innerHTML = html;
+  $("#dlBtn").onclick = () => download(entry, v);
+  box.querySelectorAll("[data-view]").forEach((b) => b.onclick = () => { state.view = b.dataset.view; render(); });
+}
+
+// ---------- free-text tagging ----------
+async function tagText(given) {
+  const text = (given ?? $("#tryInput").value).trim();
+  $("#tryMsg").textContent = "";
+  if (!text) { $("#tryMsg").textContent = "Type some text to tag."; return; }
+  if (!state.api) { togglePanel(true); return; }
+  const model = state.model;
+  state.tryText = text;
+  if (state.tryCache[`${model}|${text}`]) { render(); return; }
+  state.tagging = true; render();
+  try {
+    const r = await callJSON("/tag", { method: "POST", headers: { "Content-Type": "application/json" },
+                                       body: JSON.stringify({ text, model }) });
+    state.tryCache[`${model}|${text}`] = r;
+  } catch (e) { $("#tryMsg").textContent = e.message; }
+  finally { state.tagging = false; render(); }
+}
+function renderTry() {
+  const btn = $("#tryBtn");
+  btn.disabled = state.tagging;
+  btn.textContent = state.tagging ? "Tagging" : `Tag with ${MODEL_NAMES[state.model]}`;
+  const out = $("#tryOut");
+  const r = state.tryText && state.tryCache[`${state.model}|${state.tryText}`];
+  if (!r) {
+    out.innerHTML = state.tryText && !state.tagging
+      ? `<p class="hint">Press Tag to run ${MODEL_NAMES[state.model]} on this text.</p>` : "";
+    return;
+  }
+  const v = state.head ? "head" : "base";
+  const spans = r.sentences.reduce((n, s) => n + spansOf(s[v]).length, 0);
+  out.innerHTML = `<div class="try-meta"><span>${r.model_name} ${state.head ? "with" : "without"} head,
+      ${r.sentences.length} sentence${r.sentences.length === 1 ? "" : "s"}, ${spans} disease span${spans === 1 ? "" : "s"}. Tagged in ${r.seconds} s.</span>
+      <button class="small-btn" id="copyBio">Copy BIO tags</button></div>
+    ${r.sentences.map((s) => `<div class="try-sent"><div class="text">${sentenceHTML({ ...s, gold: null }, state.head)}</div>
+      <div class="bio">${s.tokens.map((w, i) => `<span class="tok ${s[v][i] === "O" ? "" : "dis"}"><span class="w">${esc(w)}</span><span class="t">${s[v][i]}</span></span>`).join("")}</div></div>`).join("")}`;
+  $("#copyBio").onclick = async (e) => {
+    const txt = r.sentences.map((s) => s.tokens.map((w, i) => `${w}\t${s[v][i]}`).join("\n")).join("\n\n");
+    try { await navigator.clipboard.writeText(txt); e.target.textContent = "Copied"; }
+    catch { e.target.textContent = "Copy failed"; }
+    setTimeout(() => { if (e.target.isConnected) e.target.textContent = "Copy BIO tags"; }, 1500);
+  };
+}
+
+// ---------- wiring ----------
+document.querySelectorAll("[data-model]").forEach((b) => b.onclick = () => {
+  if (state.running || state.tagging) return;
+  state.model = b.dataset.model; render();
+  // text already tagged with the other model: tag it with this one too
+  if (state.tryText && state.api && !state.tryCache[`${state.model}|${state.tryText}`]) {
+    tagText(state.tryText);
+  }
+});
+$("#tryBtn").onclick = () => tagText();
+$("#tryInput").onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); tagText(); } };
+document.querySelectorAll("[data-head]").forEach((b) => b.onclick = () => { state.head = b.dataset.head === "1"; render(); });
+$("#ncbiChoice").onclick = () => { state.source = "ncbi"; render(); };
+$("#fileChoice").onclick = () => $("#fileInput").click();
+$("#fileInput").onchange = (e) => { pickFile(e.target.files[0]); e.target.value = ""; };
+const fc = $("#fileChoice");
+fc.ondragover = (e) => { e.preventDefault(); fc.classList.add("drag"); };
+fc.ondragleave = () => fc.classList.remove("drag");
+fc.ondrop = (e) => { e.preventDefault(); fc.classList.remove("drag"); pickFile(e.dataTransfer.files[0]); };
+$("#runBtn").onclick = run;
+$("#connBtn").onclick = () => togglePanel($("#connPanel").hidden);
+$("#connectBtn").onclick = () => connect($("#apiInput").value);
+$("#apiInput").onkeydown = (e) => { if (e.key === "Enter") connect(e.target.value); };
+
+const fromQuery = new URLSearchParams(location.search).get("api");
+if (fromQuery) history.replaceState(null, "", location.pathname);
+const saved = fromQuery || LS.get("pdnc_api");
+if (saved) connect(saved); else { togglePanel(true); render(); }
+</script>
+</body>
+</html>
